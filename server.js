@@ -21,7 +21,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 
 const VALID_WIDGET_TYPES = ['bookmarks', 'rss', 'notes', 'weather', 'clock', 'search', 'embed', 'ai'];
 
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '15mb' }));
 app.get('/launchy-extension.xpi', (req, res) => {
   const xpiPath = path.join(__dirname, 'public', 'launchy-extension.xpi');
   if (!fs.existsSync(xpiPath)) return res.status(404).send('Extension not found');
@@ -335,7 +335,14 @@ app.put('/api/auth/language', auth, (req, res) => {
 
 app.put('/api/auth/customization', auth, (req, res) => {
   const { background_url, background_overlay, accent_color, link_target } = req.body;
-  if (background_url !== undefined) db.prepare('UPDATE users SET background_url = ? WHERE id = ?').run(background_url, req.user.id);
+  if (background_url !== undefined) {
+    if (typeof background_url !== 'string') return res.status(400).json({ error: 'error.invalidImage' });
+    if (background_url && !/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(background_url) && !/^https?:\/\//i.test(background_url)) {
+      return res.status(400).json({ error: 'error.invalidImage' });
+    }
+    if (background_url.length > 12 * 1024 * 1024) return res.status(413).json({ error: 'error.imageTooLarge' });
+    db.prepare('UPDATE users SET background_url = ? WHERE id = ?').run(background_url, req.user.id);
+  }
   if (background_overlay !== undefined) db.prepare('UPDATE users SET background_overlay = ? WHERE id = ?').run(background_overlay, req.user.id);
   if (accent_color !== undefined) db.prepare('UPDATE users SET accent_color = ? WHERE id = ?').run(accent_color, req.user.id);
   if (link_target !== undefined) db.prepare('UPDATE users SET link_target = ? WHERE id = ?').run(link_target, req.user.id);

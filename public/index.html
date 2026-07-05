@@ -173,10 +173,11 @@ input[type="range"] { padding: 0; }
 /* ─── Dashboard ───────────────────────────── */
 .dashboard {
   display: flex; gap: 16px; padding: 16px; align-items: flex-start;
-  overflow: hidden; min-height: calc(100vh - 56px);
+  overflow-x: auto; min-height: calc(100vh - 56px);
+  justify-content: center;
 }
 .column {
-  flex: 0 1 auto; min-width: 200px; position: relative;
+  flex: 1 1 auto; min-width: 200px; position: relative;
   display: flex; flex-direction: column; gap: 12px;
 }
 .column-resize-handle {
@@ -210,13 +211,14 @@ body.col-resizing * { cursor: col-resize !important; }
 .column-header:hover .col-actions { opacity: 1; }
 
 .columns-sortable {
-  display: flex; gap: 16px; align-items: flex-start; flex: 1; min-width: 0; overflow: hidden;
+  display: flex; gap: 16px; align-items: flex-start; flex: 1 1 auto; min-width: 0; overflow: visible;
 }
 .add-column-btn {
   min-width: 44px; height: 44px; border-radius: var(--radius);
   border: 2px dashed var(--border); display: flex; align-items: center;
   justify-content: center; cursor: pointer; color: var(--text-muted);
   font-size: 24px; transition: all 0.2s; align-self: flex-start; margin-top: 24px;
+  flex: 0 0 44px;
 }
 .add-column-btn:hover { border-color: var(--accent); color: var(--accent); }
 
@@ -984,7 +986,7 @@ async function toggleTheme() {
 
 function applyCustomization(user) {
   if (user.background_url) {
-    document.getElementById('bg-layer').style.backgroundImage = `url(${user.background_url})`;
+    document.getElementById('bg-layer').style.backgroundImage = `url("${user.background_url}")`;
     document.getElementById('bg-layer').style.display = 'block';
     document.getElementById('bg-overlay').style.display = 'block';
     document.getElementById('bg-overlay').style.opacity = user.background_overlay ?? 0.85;
@@ -1004,6 +1006,18 @@ function applyCustomization(user) {
 function clearBackground() {
   document.getElementById('bg-layer').style.display = 'none';
   document.getElementById('bg-overlay').style.display = 'none';
+}
+
+function readImageFileAsDataUrl(file, maxBytes = 8 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    if (!file) return resolve(null);
+    if (!file.type || !file.type.startsWith('image/')) return reject(new Error('invalidImage'));
+    if (file.size > maxBytes) return reject(new Error('imageTooLarge'));
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('readFailed'));
+    reader.readAsDataURL(file);
+  });
 }
 
 // ─── Tabs ─────────────────────────────────────────────
@@ -2406,8 +2420,13 @@ function openSettings() {
     <div class="modal-section">
       <h3>${t('settings.wallpaper')}</h3>
       <div class="form-group">
-        <label>${t('settings.wallpaperUrl')}</label>
-        <input type="url" id="settings-bg-url" value="${esc(currentUser.background_url || '')}" placeholder="https://example.com/image.jpg">
+        <label>${t('settings.wallpaperImage')}</label>
+        <input type="file" id="settings-bg-file" accept="image/*">
+        <input type="hidden" id="settings-bg-value" value="${esc(currentUser.background_url || '')}">
+        <div id="settings-bg-preview" style="margin-top:10px;${currentUser.background_url ? '' : 'display:none'}">
+          <div style="height:120px;border-radius:8px;background:center/cover no-repeat var(--bg-input);border:1px solid var(--border);background-image:url('${esc(currentUser.background_url || '')}')"></div>
+          <button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="clearSettingsBackground()">${t('settings.removeWallpaper')}</button>
+        </div>
       </div>
       <div class="form-group">
         <label>${t('settings.wallpaperOpacity', {value: Math.round((currentUser.background_overlay || 0.85) * 100)})}</label>
@@ -2440,7 +2459,7 @@ function openSettings() {
       </div>
     </div>
   `, async () => {
-    const background_url = document.getElementById('settings-bg-url').value;
+    const background_url = document.getElementById('settings-bg-value').value;
     const background_overlay = parseInt(document.getElementById('settings-bg-opacity').value) / 100;
     const accent_color = document.getElementById('settings-accent').value;
     const link_target = document.getElementById('settings-link-target').value;
@@ -2456,6 +2475,28 @@ function openSettings() {
   document.getElementById('settings-bg-opacity').addEventListener('input', (e) => {
     e.target.previousElementSibling.textContent = t('settings.wallpaperOpacity', {value: e.target.value});
   });
+  document.getElementById('settings-bg-file').addEventListener('change', handleSettingsBackgroundFile);
+}
+
+async function handleSettingsBackgroundFile(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try {
+    const dataUrl = await readImageFileAsDataUrl(file);
+    document.getElementById('settings-bg-value').value = dataUrl;
+    const preview = document.getElementById('settings-bg-preview');
+    preview.style.display = '';
+    preview.querySelector('div').style.backgroundImage = `url("${dataUrl}")`;
+  } catch (err) {
+    toast(t(err.message === 'imageTooLarge' ? 'settings.imageTooLarge' : 'settings.invalidImage'), 'error');
+    e.target.value = '';
+  }
+}
+
+function clearSettingsBackground() {
+  document.getElementById('settings-bg-value').value = '';
+  document.getElementById('settings-bg-file').value = '';
+  document.getElementById('settings-bg-preview').style.display = 'none';
 }
 
 // ─── Import / Export ──────────────────────────────────
