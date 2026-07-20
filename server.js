@@ -319,7 +319,7 @@ app.put('/api/auth/password', auth, (req, res) => {
   const { currentPassword, newPassword } = req.body;
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   if (!bcrypt.compareSync(currentPassword, user.password)) {
-    return res.status(401).json({ error: 'error.wrongCurrentPassword' });
+    return res.status(400).json({ error: 'error.wrongCurrentPassword' });
   }
   const hash = bcrypt.hashSync(newPassword, 10);
   db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, req.user.id);

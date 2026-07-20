@@ -2348,18 +2348,34 @@ function changePassword() {
   showModal(t('password.title'), `
     <div class="form-group">
       <label>${t('password.current')}</label>
-      <input type="password" id="cur-pass">
+      <div style="position:relative">
+        <input type="password" id="cur-pass" style="padding-right:36px">
+        <svg class="pass-toggle" onclick="var i=this.previousElementSibling;i.type=i.type==='password'?'text':'password';this.querySelector('.eye-off').style.display=i.type==='password'?'none':'block'" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;width:18px;height:18px;color:var(--text-muted)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><line class="eye-off" x1="1" y1="1" x2="23" y2="23" style="display:none"/></svg>
+      </div>
     </div>
     <div class="form-group">
       <label>${t('password.new')}</label>
-      <input type="password" id="new-pass">
+      <div style="position:relative">
+        <input type="password" id="new-pass" style="padding-right:36px">
+        <svg class="pass-toggle" onclick="var i=this.previousElementSibling;i.type=i.type==='password'?'text':'password';this.querySelector('.eye-off').style.display=i.type==='password'?'none':'block'" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;width:18px;height:18px;color:var(--text-muted)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><line class="eye-off" x1="1" y1="1" x2="23" y2="23" style="display:none"/></svg>
+      </div>
     </div>
   `, async () => {
     const currentPassword = document.getElementById('cur-pass').value;
     const newPassword = document.getElementById('new-pass').value;
-    await api('/auth/password', { method: 'PUT', body: { currentPassword, newPassword } });
-    closeModal();
-    toast(t('password.updated'), 'success');
+    try {
+      await api('/auth/password', { method: 'PUT', body: { currentPassword, newPassword } });
+      closeModal();
+      toast(t('password.updated'), 'success');
+    } catch (err) {
+      const existing = document.getElementById('pass-error');
+      if (existing) existing.remove();
+      const errDiv = document.createElement('div');
+      errDiv.id = 'pass-error';
+      errDiv.style.cssText = 'color:#e94b2e;margin-top:8px;font-size:13px';
+      errDiv.textContent = err.message;
+      document.getElementById('new-pass').parentNode.after(errDiv);
+    }
   });
 }
 
