@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Launchy: Server",
+      "program": "${workspaceFolder}/server.js",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PORT": "3000",
+        "JWT_SECRET": "xdnRgnOB+Jz7rS29HC+aAR3/AddZRubg5MFFNF+eq3woNKMl6jOoPAazX6SJUpvK"
+      },
+      "runtimeExecutable": "/run/user/1000/fnm_multishells/482103_1783282346800/bin/node",
+      "console": "integratedTerminal",
+      "restart": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "serverReadyAction": {
+        "pattern": "Launchy running on (http://localhost:[0-9]+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      }
+    }
+  ]
+}

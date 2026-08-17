@@ -124,6 +124,38 @@ input[type="range"] { padding: 0; }
 }
 .topbar-brand { font-weight: 700; font-size: 16px; color: #e94b2e; margin-right: 8px; }
 
+.global-search {
+  display: flex; align-items: center; flex: 1 1 420px; max-width: 620px;
+  min-width: 240px; height: 40px; overflow: hidden;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: 10px; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.global-search:focus-within {
+  border-color: var(--accent); box-shadow: 0 0 0 3px rgba(233, 75, 46, 0.14);
+}
+.global-search select,
+.global-search input,
+.global-search button {
+  width: auto; height: 100%; border: 0; border-radius: 0; background: transparent;
+}
+.global-search select {
+  flex: 0 0 auto; max-width: 132px; padding: 0 28px 0 10px;
+  border-right: 1px solid var(--border); color: var(--text-muted); cursor: pointer;
+}
+.global-search input { flex: 1 1 auto; min-width: 80px; padding: 0 12px; color: var(--text); }
+.global-search input:focus, .global-search select:focus { border-color: transparent; }
+.global-search button {
+  flex: 0 0 42px; padding: 0; color: var(--text-muted); cursor: pointer; font-size: 17px;
+}
+.global-search button:hover { color: var(--text); background: var(--bg-card-hover); }
+
+@media (max-width: 800px) {
+  .topbar { flex-wrap: wrap; }
+  .global-search { order: 3; flex-basis: 100%; max-width: none; }
+  .tabs { order: 2; }
+  .topbar-actions { order: 2; }
+}
+
 .tabs {
   display: flex; gap: 2px; flex: 1; overflow-x: auto; scrollbar-width: none;
 }
@@ -177,7 +209,7 @@ input[type="range"] { padding: 0; }
   justify-content: center;
 }
 .column {
-  flex: 1 1 auto; min-width: 200px; position: relative;
+  flex: 0 1 auto; min-width: 200px; max-width: 500px; position: relative;
   display: flex; flex-direction: column; gap: 12px;
 }
 .column-resize-handle {
@@ -211,7 +243,7 @@ body.col-resizing * { cursor: col-resize !important; }
 .column-header:hover .col-actions { opacity: 1; }
 
 .columns-sortable {
-  display: flex; gap: 16px; align-items: flex-start; flex: 1 1 auto; min-width: 0; overflow: visible;
+  display: flex; gap: 16px; align-items: flex-start; flex: 0 1 auto; min-width: 0; overflow: visible;
 }
 .add-column-btn {
   min-width: 44px; height: 44px; border-radius: var(--radius);
@@ -737,6 +769,18 @@ body.col-resizing * { cursor: col-resize !important; }
 <div id="app">
   <div class="topbar">
     <img src="/logo.png" alt="Launchy" class="topbar-logo">
+    <form class="global-search" id="global-search" onsubmit="submitGlobalSearch(event)" role="search">
+      <select id="global-search-engine" onchange="setDefaultSearchEngine(this.value)" aria-label="Search engine">
+        <option value="google">Google</option>
+        <option value="duckduckgo">DuckDuckGo</option>
+        <option value="bing">Bing</option>
+        <option value="brave">Brave</option>
+        <option value="startpage">Startpage</option>
+        <option value="kagi">Kagi</option>
+      </select>
+      <input id="global-search-input" type="search" placeholder="Search the web…" aria-label="Search the web" autocomplete="off" spellcheck="false" autofocus>
+      <button type="submit" aria-label="Search">&#128269;</button>
+    </form>
     <div class="tabs" id="tabs"></div>
     <div class="tab-add" onclick="addPage()" title="New page">+</div>
     <div class="topbar-actions">
@@ -959,6 +1003,7 @@ async function initApp() {
     applyCustomization(currentUser);
     document.getElementById('user-menu').textContent = currentUser.username;
     await loadDashboard();
+    initializeGlobalSearch();
   } catch {
     logout();
   }
@@ -2314,20 +2359,53 @@ function startClocks() {
 }
 
 // ─── Search ───────────────────────────────────────────
+const SEARCH_ENGINES = {
+  google: 'https://www.google.com/search?q=',
+  duckduckgo: 'https://duckduckgo.com/?q=',
+  bing: 'https://www.bing.com/search?q=',
+  brave: 'https://search.brave.com/search?q=',
+  startpage: 'https://www.startpage.com/sp/search?query=',
+  kagi: 'https://kagi.com/search?q='
+};
+
+function getDefaultSearchEngine() {
+  const saved = localStorage.getItem('launchy_search_engine');
+  return Object.hasOwn(SEARCH_ENGINES, saved) ? saved : 'duckduckgo';
+}
+
+function setDefaultSearchEngine(engine) {
+  if (!Object.hasOwn(SEARCH_ENGINES, engine)) return;
+  localStorage.setItem('launchy_search_engine', engine);
+  document.getElementById('global-search-input')?.focus({ preventScroll: true });
+}
+
+function initializeGlobalSearch() {
+  const engine = document.getElementById('global-search-engine');
+  const input = document.getElementById('global-search-input');
+  if (!engine || !input) return;
+  engine.value = getDefaultSearchEngine();
+  input.focus({ preventScroll: true });
+  input.select();
+}
+
+function submitGlobalSearch(event) {
+  event.preventDefault();
+  const input = document.getElementById('global-search-input');
+  const query = input.value.trim();
+  if (!query) return;
+  const engine = getDefaultSearchEngine();
+  window.location.assign(SEARCH_ENGINES[engine] + encodeURIComponent(query));
+}
+
 function doSearch(event, engine, customUrl) {
   event.preventDefault();
   const query = event.target.querySelector('input').value;
   if (!query) return;
-  const urls = {
-    google: 'https://www.google.com/search?q=',
-    duckduckgo: 'https://duckduckgo.com/?q=',
-    bing: 'https://www.bing.com/search?q='
-  };
   let url;
   if (engine === 'custom' && customUrl) {
     url = customUrl.replace('%s', encodeURIComponent(query));
   } else {
-    url = (urls[engine] || urls.google) + encodeURIComponent(query);
+    url = (SEARCH_ENGINES[engine] || SEARCH_ENGINES.google) + encodeURIComponent(query);
   }
   window.open(url, currentUser?.link_target || '_blank');
 }
