@@ -358,10 +358,10 @@ app.put('/api/auth/customization', auth, async (req, res) => {
   const { background_url, background_overlay, accent_color, link_target } = req.body;
 
   if (background_url !== undefined) {
-    const currentUser = db.prepare('SELECT background_url FROM users WHERE id = ?').get(req.user.id);
-    deleteUserWallpaper(req.user.id);
-
-    if (background_url) {
+    if (background_url.startsWith('/api/wallpaper/')) {
+      // already local — keep as-is
+    } else if (background_url) {
+      deleteUserWallpaper(req.user.id);
       try {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 15000);
@@ -382,6 +382,7 @@ app.put('/api/auth/customization', auth, async (req, res) => {
         return res.status(400).json({ error: 'error.wallpaperFailed' });
       }
     } else {
+      deleteUserWallpaper(req.user.id);
       db.prepare('UPDATE users SET background_url = ? WHERE id = ?').run('', req.user.id);
     }
   }
