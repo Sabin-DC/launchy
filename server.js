@@ -157,6 +157,22 @@ if (widgetSchema && widgetSchema.sql && widgetSchema.sql.includes('CHECK')) {
   db.pragma('foreign_keys = ON');
 }
 
+// ─── Server-side translations ──────────────────────────────────
+const _serverTranslations = {};
+function loadServerTranslations() {
+  for (const lang of ['fr', 'en']) {
+    const filePath = path.join(__dirname, 'public', 'lang', lang + '.json');
+    if (fs.existsSync(filePath)) {
+      _serverTranslations[lang] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    }
+  }
+}
+loadServerTranslations();
+
+function st(lang, key) {
+  return _serverTranslations[lang]?.[key] || _serverTranslations['fr']?.[key] || key;
+}
+
 // Create default admin user if none exists
 const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
 if (userCount.count === 0) {
@@ -180,22 +196,6 @@ function cleanupAIMessages() {
 }
 cleanupAIMessages();
 setInterval(cleanupAIMessages, 3600000);
-
-// ─── Server-side translations ──────────────────────────────────
-const _serverTranslations = {};
-function loadServerTranslations() {
-  for (const lang of ['fr', 'en']) {
-    const filePath = path.join(__dirname, 'public', 'lang', lang + '.json');
-    if (fs.existsSync(filePath)) {
-      _serverTranslations[lang] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    }
-  }
-}
-loadServerTranslations();
-
-function st(lang, key) {
-  return _serverTranslations[lang]?.[key] || _serverTranslations['fr']?.[key] || key;
-}
 
 // ─── Auth middleware ──────────────────────────────────────────────
 function auth(req, res, next) {
