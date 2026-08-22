@@ -333,9 +333,59 @@ app.put('/api/auth/language', auth, (req, res) => {
   res.json({ language });
 });
 
-app.put('/api/auth/customization', auth, (req, res) => {
+const WALLPAPER_DIR = path.join(__dirname, 'data', 'wallpapers');
+if (!fs.existsSync(WALLPAPER_DIR)) fs.mkdirSync(WALLPAPER_DIR, { recursive: true });
+
+function deleteUserWallpaper(userId) {
+  try {
+    const files = fs.readdirSync(WALLPAPER_DIR).filter(f => f.startsWith(`${userId}_`));
+    files.forEach(f => fs.unlinkSync(path.join(WALLPAPER_DIR, f)));
+  } catch {}
+}
+
+app.get('/api/wallpaper/:filename', (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const filePath = path.join(WALLPAPER_DIR, filename);
+  if (!fs.existsSync(filePath)) return res.status(404).end();
+  const ext = path.extname(filename).toLowerCase();
+  const types = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
+  res.set('Content-Type', types[ext] || 'application/octet-stream');
+  res.set('Cache-Control', 'public, max-age=604800');
+  fs.createReadStream(filePath).pipe(res);
+});
+
+app.put('/api/auth/customization', auth, async (req, res) => {
   const { background_url, background_overlay, accent_color, link_target } = req.body;
-  if (background_url !== undefined) db.prepare('UPDATE users SET background_url = ? WHERE id = ?').run(background_url, req.user.id);
+
+  if (background_url !== undefined) {
+    const currentUser = db.prepare('SELECT background_url FROM users WHERE id = ?').get(req.user.id);
+    deleteUserWallpaper(req.user.id);
+
+    if (background_url) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15000);
+        const r = await fetch(background_url, { signal: ctrl.signal, redirect: 'follow' });
+        clearTimeout(timer);
+        if (!r.ok) throw new Error('fetch failed');
+        const ct = r.headers.get('content-type') || '';
+        const extMap = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif', 'image/svg+xml': '.svg' };
+        let ext = extMap[ct.split(';')[0]] || path.extname(new URL(background_url).pathname).toLowerCase() || '.jpg';
+        if (!Object.values(extMap).includes(ext)) ext = '.jpg';
+        const filename = `${req.user.id}_${Date.now()}${ext}`;
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (buf.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'error.fileTooLarge' });
+        fs.writeFileSync(path.join(WALLPAPER_DIR, filename), buf);
+        db.prepare('UPDATE users SET background_url = ? WHERE id = ?').run(`/api/wallpaper/${filename}`, req.user.id);
+      } catch (err) {
+        db.prepare('UPDATE users SET background_url = ? WHERE id = ?').run('', req.user.id);
+        return res.status(400).json({ error: 'error.wallpaperFailed' });
+      }
+    } else {
+      db.prepare('UPDATE users SET background_url = ? WHERE id = ?').run('', req.user.id);
+    }
+  }
+
   if (background_overlay !== undefined) db.prepare('UPDATE users SET background_overlay = ? WHERE id = ?').run(background_overlay, req.user.id);
   if (accent_color !== undefined) db.prepare('UPDATE users SET accent_color = ? WHERE id = ?').run(accent_color, req.user.id);
   if (link_target !== undefined) db.prepare('UPDATE users SET link_target = ? WHERE id = ?').run(link_target, req.user.id);
@@ -828,15 +878,103 @@ app.get('/api/weather', auth, async (req, res) => {
 });
 
 // ─── Favicon proxy ────────────────────────────────────────────────
-app.get('/api/favicon', (req, res) => {
+const faviconCache = new Map();
+const FAVICON_TTL = 24 * 60 * 60 * 1000;
+const FAVICON_FAIL_TTL = 60 * 60 * 1000;
+
+async function faviconFetch(targetUrl, timeout = 5000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    return await fetch(targetUrl, {
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Launchy/1.0)' },
+      redirect: 'follow',
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseIconLinks(html, baseUrl) {
+  const icons = [];
+  const re = /<link\s[^>]*rel\s*=\s*["']([^"']*icon[^"']*)["'][^>]*>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const tag = m[0];
+    const rel = m[1].toLowerCase();
+    const href = (tag.match(/href\s*=\s*["']([^"']+)["']/i) || [])[1];
+    if (!href) continue;
+    const sizePart = (tag.match(/sizes\s*=\s*["']([^"']+)["']/i) || [])[1];
+    const size = sizePart ? parseInt(sizePart.split('x')[0], 10) || 0 : 0;
+    let priority = 1;
+    if (rel.includes('apple-touch-icon')) priority = 3;
+    else if (size >= 64) priority = 2;
+    try {
+      icons.push({ url: new URL(href, baseUrl).href, size, priority });
+    } catch {}
+  }
+  icons.sort((a, b) => b.priority - a.priority || b.size - a.size);
+  return icons;
+}
+
+async function fetchIconBuffer(targetUrl) {
+  try {
+    const r = await faviconFetch(targetUrl);
+    if (!r.ok) return null;
+    const ct = r.headers.get('content-type') || '';
+    if (!/image|icon|svg|octet-stream/i.test(ct) && !targetUrl.match(/\.(ico|png|svg|jpg|gif|webp)(\?|$)/i)) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length < 20) return null;
+    return { buffer: buf, contentType: ct.split(';')[0] || 'image/x-icon' };
+  } catch { return null; }
+}
+
+app.get('/api/favicon', async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'error.urlRequired' });
+
+  let origin, domain;
   try {
-    const domain = new URL(url).hostname;
-    res.redirect(`https://www.google.com/s2/favicons?domain=${domain}&sz=64`);
+    const u = new URL(url);
+    domain = u.hostname;
+    origin = u.origin;
   } catch {
-    res.status(400).json({ error: 'error.invalidUrl' });
+    return res.status(400).json({ error: 'error.invalidUrl' });
   }
+
+  const cached = faviconCache.get(domain);
+  if (cached && Date.now() - cached.ts < (cached.buffer ? FAVICON_TTL : FAVICON_FAIL_TTL)) {
+    if (!cached.buffer) return res.status(404).end();
+    res.set('Content-Type', cached.contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.send(cached.buffer);
+  }
+
+  let result = null;
+  try {
+    const pageRes = await faviconFetch(origin, 4000);
+    if (pageRes.ok) {
+      const html = await pageRes.text();
+      for (const icon of parseIconLinks(html, origin)) {
+        result = await fetchIconBuffer(icon.url);
+        if (result) break;
+      }
+    }
+  } catch {}
+
+  if (!result) result = await fetchIconBuffer(`${origin}/favicon.ico`);
+
+  if (!result) result = await fetchIconBuffer(`https://www.google.com/s2/favicons?domain=${domain}&sz=64`);
+
+  faviconCache.set(domain, result ? { ...result, ts: Date.now() } : { buffer: null, ts: Date.now() });
+
+  if (result) {
+    res.set('Content-Type', result.contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.send(result.buffer);
+  }
+  res.status(404).end();
 });
 
 // ─── Import / Export ──────────────────────────────────────────────
